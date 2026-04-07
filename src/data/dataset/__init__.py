@@ -1,0 +1,6 @@
+"""Copyright(c) 2023 lyuwenyu. All Rights Reserved.
+"""
+
+from .coco_dataset import CocoDetection
+
+__all__ = ['CocoDetection']
