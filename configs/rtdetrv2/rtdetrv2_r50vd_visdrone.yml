@@ -22,8 +22,42 @@ lr_scheduler:
 
 eval_spatial_size: [960, 960]
 
+# -----------------------------------------------------------------------
+# Three-improvement combined configuration
+#
+# Fix A – LS Conv: applied only in CCFM fusion layers (not input projections)
+#   → HybridEncoder.use_ls_conv: True
+#
+# Fix B – NWD Loss: weight set to 0.5 × GIoU weight (not equal to it)
+#   Also: nwd_only_final=True so NWD only acts on the final decoder layer
+#   → RTDETRCriterionv2.weight_dict.loss_nwd: 1  (= 0.5 × loss_giou=2)
+#   → RTDETRCriterionv2.use_nwd_loss: True
+#   → RTDETRCriterionv2.nwd_only_final: True
+#
+# Fix C – Dynamic Query Grouping: warm-up of 2000 iters before activation
+#   and gradients are detached at reference-point grouping to isolate
+#   grouping from NWD/GIoU optimisation.
+#   → RTDETRTransformerv2.use_dynamic_grouping: True
+#   → RTDETRTransformerv2.grouping_warmup_iters: 2000
+# -----------------------------------------------------------------------
+
+HybridEncoder:
+  use_ls_conv: True   # Fix A: LS Conv only in CCFM, not in 1×1 projections
+
 RTDETRTransformerv2:
   num_queries: 900
+  use_dynamic_grouping: True    # Fix C: Dynamic Query Grouping enabled
+  num_groups: 15                # 15 groups for 900 queries ≈ 60 queries/group
+  grouping_warmup_iters: 2000   # Fix C: warm-up before grouping activates
+
+RTDETRCriterionv2:
+  use_nwd_loss: True    # Fix B: NWD Loss enabled
+  nwd_only_final: True  # Fix B: NWD only at final layer (prevents gradient overload)
+  weight_dict:
+    loss_vfl: 1
+    loss_bbox: 5
+    loss_giou: 2
+    loss_nwd: 1   # Fix B: 0.5 × loss_giou (= 0.5 × 2 = 1) balances gradient magnitudes
 
 RTDETRPostProcessor:
   num_top_queries: 900

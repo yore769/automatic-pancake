@@ -50,6 +50,8 @@ HybridEncoder:
   expansion: 1.0
   depth_mult: 1
   act: 'silu'
+  # LS Conv: disabled by default; override in visdrone config
+  use_ls_conv: False
 
 
 RTDETRTransformerv2:
@@ -70,7 +72,12 @@ RTDETRTransformerv2:
   # NEW
   num_points: [4, 4, 4] # [3,3,3] [2,2,2]
   cross_attn_method: default # default, discrete
-  query_select_method: default # default, agnostic 
+  query_select_method: default # default, agnostic
+
+  # Dynamic Query Grouping: disabled by default; override in dataset configs
+  use_dynamic_grouping: False
+  num_groups: 10
+  grouping_warmup_iters: 2000
 
 
 RTDETRPostProcessor:
@@ -82,6 +89,9 @@ RTDETRCriterionv2:
   losses: ['vfl', 'boxes', ]
   alpha: 0.75
   gamma: 2.0
+  # NWD Loss: disabled by default; override in dataset configs
+  use_nwd_loss: False
+  nwd_only_final: True
 
   matcher:
     type: HungarianMatcher
