@@ -586,11 +586,3 @@ class RTDETRTransformerv2(nn.Module):
             out['dn_meta'] = dn_meta
 
         return out
-
-    def _infer_num_classes(self, targets) -> int:
-        """Infer num_classes from targets if available."""
-        if targets and targets[0].get('labels') is not None:
-            for t in targets:
-                if len(t['labels']) > 0:
-                    return int(t['labels'].max().item()) + 1
-        return 80

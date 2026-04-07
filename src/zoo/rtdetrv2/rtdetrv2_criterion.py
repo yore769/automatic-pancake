@@ -44,9 +44,11 @@ def wasserstein_loss(
     # Center distance
     center_dist = (cx1 - cx2) ** 2 + (cy1 - cy2) ** 2
 
-    # Frobenius norm of diagonal sigma difference: sum of squared (sigma_i - sigma_j)
-    # sigma = diag(w/2, h/2), so ||sigma1 - sigma2||_F^2 = (w1/2-w2/2)^2 + (h1/2-h2/2)^2
-    # Equivalently: ((sqrt(w1) - sqrt(w2))^2 + (sqrt(h1) - sqrt(h2))^2) using sqrt trick
+    # Frobenius norm of diagonal sigma difference:
+    # sigma = diag(w/2, h/2), so:
+    # ||sigma1 - sigma2||_F^2 = (w1/2 - w2/2)^2 + (h1/2 - h2/2)^2
+    #                         = (sqrt(w1) - sqrt(w2))^2/4 + (sqrt(h1) - sqrt(h2))^2/4
+    # We absorb the constant 1/4 into the normalization constant `constant`.
     wh_dist = (w1.sqrt() - w2.sqrt()) ** 2 + (h1.sqrt() - h2.sqrt()) ** 2
 
     wasserstein_2 = center_dist + wh_dist
