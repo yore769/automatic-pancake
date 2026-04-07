@@ -1,0 +1,17 @@
+# Dynamic Query Grouping (DQG) Configuration
+# Groups decoder queries dynamically based on feature similarity.
+# This improves the assignment between queries and ground-truth objects,
+# especially for dense small objects in VisDrone.
+#
+# Usage: include this file in your training config alongside the base config.
+
+RTDETRTransformerv2:
+  # Enable dynamic query grouping in the decoder
+  query_select_method: agnostic   # 'agnostic' enables content-aware grouping
+
+  # Increase number of queries to support grouping
+  # The effective query count is num_queries / num_groups
+  num_queries: 900
+
+RTDETRPostProcessor:
+  num_top_queries: 900

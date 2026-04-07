@@ -1,0 +1,21 @@
+# LS Convolution (Lightweight Separable Convolution) Configuration
+# Replaces standard convolutions with depthwise separable convolutions
+# in the HybridEncoder to reduce computation and improve feature reuse.
+#
+# PREREQUISITE: The HybridEncoder implementation must support the
+# `use_ls_conv` flag. If your version does not, add LSConv support to
+# src/nn/backbone/hgnetv2.py or the HybridEncoder module before using
+# this config.
+#
+# Usage: include this file in your training config alongside the base config.
+
+HybridEncoder:
+  # Use lightweight separable convolutions (requires LS Conv implementation)
+  use_ls_conv: True
+
+  # Reduce expansion ratio to compensate for increased depth
+  # Standard: 1.0, LS Conv: 0.67 (maintains similar parameter count)
+  expansion: 0.67
+
+  # Optionally increase depth_mult since LS conv has lower per-layer cost
+  depth_mult: 1

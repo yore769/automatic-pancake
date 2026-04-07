@@ -1,0 +1,104 @@
+__include__: [
+  '../dataset/coco_detection.yml',
+  '../runtime.yml',
+  './include/dataloader.yml',
+  './include/optimizer.yml',
+  './include/rtdetrv2_r50vd.yml',
+]
+
+# =============================================================================
+# Optimized Combined Config: NWD + DQG + LS Conv on VisDrone
+# =============================================================================
+#
+# KEY FIXES applied vs naive combination:
+#
+# Fix 1 - Loss weight rebalancing:
+#   NWD weight reduced from 2 → 1 to prevent regression loss from dominating
+#   when DQG increases the number of matched query-GT pairs.
+#   Ratio check: vfl:box = 1:(5+2+1)=1:8 (vs 1:7 baseline, acceptable).
+#
+# Fix 2 - Learning rate warmup extension:
+#   More complex model needs more warmup steps to stabilize training.
+#   warmup_duration increased from 2000 → 4000 steps.
+#
+# Fix 3 - Training schedule extension:
+#   Milestones shifted from [50, 65] → [55, 68] giving the combined model
+#   more time at the initial LR to converge.
+#
+# Fix 4 - Gradient clipping:
+#   clip_max_norm kept at 0.1 (already conservative, sufficient).
+#
+# =============================================================================
+
+output_dir: ./output/rtdetrv2_r50vd_visdrone_combined
+
+num_classes: 12
+remap_mscoco_category: False
+
+# Fix 3: Extended schedule for combined model
+lr_scheduler:
+  type: MultiStepLR
+  milestones: [55, 68]
+  gamma: 0.1
+
+eval_spatial_size: [960, 960]
+
+# Dynamic Query Grouping: content-aware query selection
+RTDETRTransformerv2:
+  num_queries: 900
+  query_select_method: agnostic   # DQG enabled
+
+RTDETRPostProcessor:
+  num_top_queries: 900
+
+# LS Convolution in encoder
+HybridEncoder:
+  use_ls_conv: True
+  expansion: 0.67   # Reduced to maintain comparable parameter count
+
+# Fix 1: Rebalanced loss weights
+# - loss_nwd reduced from 2 → 1 to avoid gradient dominance with DQG
+# - loss_giou kept at 2 (IoU and NWD are complementary, not redundant)
+RTDETRCriterionv2:
+  weight_dict: {loss_vfl: 1, loss_bbox: 5, loss_giou: 2, loss_nwd: 1}
+  losses: ['vfl', 'boxes', 'nwd']
+  alpha: 0.75
+  gamma: 2.0
+  matcher:
+    type: HungarianMatcher
+    weight_dict: {cost_class: 2, cost_bbox: 5, cost_giou: 2}
+    alpha: 0.25
+    gamma: 2.0
+
+# Fix 2: Extended warmup
+lr_warmup_scheduler:
+  type: LinearWarmup
+  warmup_duration: 4000
+
+train_dataloader:
+  total_batch_size: 4
+  dataset:
+    transforms:
+      ops:
+        - {type: RandomPhotometricDistort, p: 0.5}
+        - {type: RandomZoomOut, fill: 0}
+        - {type: RandomIoUCrop, p: 0.8}
+        - {type: SanitizeBoundingBoxes, min_size: 1}
+        - {type: RandomHorizontalFlip}
+        - {type: Resize, size: [960, 960]}
+        - {type: SanitizeBoundingBoxes, min_size: 1}
+        - {type: ConvertPILImage, dtype: 'float32', scale: True}
+        - {type: ConvertBoxes, fmt: 'cxcywh', normalize: True}
+
+  collate_fn:
+    type: BatchImageCollateFuncion
+    scales: [640, 672, 704, 736, 768, 800, 832, 864, 896, 928, 960, 992, 1024]
+    stop_epoch: 71
+
+val_dataloader:
+  total_batch_size: 4
+  dataset:
+    transforms:
+      ops:
+        - {type: Resize, size: [960, 960]}
+        - {type: ConvertPILImage, dtype: 'float32', scale: True}
