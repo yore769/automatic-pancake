@@ -1,0 +1,88 @@
+# RT-DETR VisDrone 组合改进配置（NWD Loss + 动态查询分组 + LS 卷积）
+#
+# 基于 rtdetrv2_r50vd_visdrone.yml，针对三个改进组合后性能不叠加的问题进行了优化。
+#
+# 主要修改：
+#   1. loss_giou 权重从 2 降到 1，减少与 NWD 损失的梯度竞争
+#   2. 显式注册 loss_nwd 到 weight_dict（权重 1.0）
+#   3. 增加 num_denoising 到 200，提升训练稳定性
+#   4. 延长训练至 100 epochs（组合改进收敛更慢）
+#   5. 调整 lr_scheduler milestones 适配更长的训练
+
+__include__: [
+  '../dataset/coco_detection.yml',
+  '../runtime.yml',
+  './include/dataloader.yml',
+  './include/optimizer.yml',
+  './include/rtdetrv2_r50vd.yml',
+]
+
+output_dir: ./output/rtdetrv2_r50vd_visdrone_combined
+
+num_classes: 12
+remap_mscoco_category: False
+
+# 延长训练轮数：组合改进需要更多 epoch 才能充分收敛
+epoches: 100
+
+# 学习率调度：适配 100 epoch 训练
+lr_scheduler:
+  type: MultiStepLR
+  milestones: [70, 88]   # 调整里程碑以适配 100 epoch
+  gamma: 0.1
+
+eval_spatial_size: [960, 960]
+
+RTDETRTransformerv2:
+  num_queries: 900
+  # 增加去噪查询数量，改善训练稳定性（组合改进下优化景观更复杂）
+  num_denoising: 200
+
+RTDETRPostProcessor:
+  num_top_queries: 900
+
+# 损失函数：调整权重以减少 NWD 与 GIoU 的梯度竞争
+# 关键修改：loss_giou 从 2 降到 1，添加 loss_nwd: 1.0
+# 原理：GIoU 和 NWD 都在优化边界框回归，权重过高的 GIoU 会压制 NWD 的梯度信号
+RTDETRCriterionv2:
+  weight_dict:
+    loss_vfl: 1
+    loss_bbox: 5
+    loss_giou: 1      # 从 2 降低到 1，减少与 NWD 的梯度竞争
+    loss_nwd: 1.0     # NWD 损失权重（需要在代码中注册 NWD 损失）
+  losses: ['vfl', 'boxes', 'nwd']
+  alpha: 0.75
+  gamma: 2.0
+  matcher:
+    type: HungarianMatcher
+    weight_dict: {cost_class: 2, cost_bbox: 5, cost_giou: 2}
+    alpha: 0.25
+    gamma: 2.0
+
+train_dataloader:
+  total_batch_size: 4
+  dataset:
+    transforms:
+      ops:
+        - {type: RandomPhotometricDistort, p: 0.5}
+        - {type: RandomZoomOut, fill: 0}
+        - {type: RandomIoUCrop, p: 0.8}
+        - {type: SanitizeBoundingBoxes, min_size: 1}
+        - {type: RandomHorizontalFlip}
+        - {type: Resize, size: [960, 960]}
+        - {type: SanitizeBoundingBoxes, min_size: 1}
+        - {type: ConvertPILImage, dtype: 'float32', scale: True}
+        - {type: ConvertBoxes, fmt: 'cxcywh', normalize: True}
+
+  collate_fn:
+    type: BatchImageCollateFuncion
+    scales: [640, 672, 704, 736, 768, 800, 832, 864, 896, 928, 960, 992, 1024]
+    stop_epoch: 99   # 适配 100 epoch
+
+val_dataloader:
+  total_batch_size: 4
+  dataset:
+    transforms:
+      ops:
+        - {type: Resize, size: [960, 960]}
+        - {type: ConvertPILImage, dtype: 'float32', scale: True}
