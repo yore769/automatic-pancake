@@ -1,0 +1,70 @@
+__include__: [
+  '../../dataset/coco_detection.yml',
+  '../../runtime.yml',
+  '../include/dataloader.yml',
+  '../include/optimizer.yml',
+  '../include/rtdetrv2_r50vd.yml',
+]
+
+# Combined model: NWD + DQG + LS Conv (naively combined, for reference)
+# This config replicates the original combined experiment without fixes.
+# Compare its performance against rtdetrv2_r50vd_visdrone_combined_optimized.yml
+# to measure the benefit of the proposed fixes.
+
+output_dir: ./output/ablation/all_naive
+
+num_classes: 12
+remap_mscoco_category: False
+
+lr_scheduler:
+  type: MultiStepLR
+  milestones: [50, 65]
+  gamma: 0.1
+
+eval_spatial_size: [960, 960]
+
+RTDETRTransformerv2:
+  num_queries: 900
+  query_select_method: agnostic
+
+RTDETRPostProcessor:
+  num_top_queries: 900
+
+HybridEncoder:
+  use_ls_conv: True
+  expansion: 0.67
+
+# Problem: with DQG (agnostic mode), more queries are matched to objects,
+# increasing the NWD gradient contribution significantly.
+# nwd_weight=2 here can over-power the classification loss.
+RTDETRCriterionv2:
+  weight_dict: {loss_vfl: 1, loss_bbox: 5, loss_giou: 2, loss_nwd: 2}
+  losses: ['vfl', 'boxes', 'nwd']
+
+train_dataloader:
+  total_batch_size: 4
+  dataset:
+    transforms:
+      ops:
+        - {type: RandomPhotometricDistort, p: 0.5}
+        - {type: RandomZoomOut, fill: 0}
+        - {type: RandomIoUCrop, p: 0.8}
+        - {type: SanitizeBoundingBoxes, min_size: 1}
+        - {type: RandomHorizontalFlip}
+        - {type: Resize, size: [960, 960]}
+        - {type: SanitizeBoundingBoxes, min_size: 1}
+        - {type: ConvertPILImage, dtype: 'float32', scale: True}
+        - {type: ConvertBoxes, fmt: 'cxcywh', normalize: True}
+
+  collate_fn:
+    type: BatchImageCollateFuncion
+    scales: [640, 672, 704, 736, 768, 800, 832, 864, 896, 928, 960, 992, 1024]
+    stop_epoch: 71
+
+val_dataloader:
+  total_batch_size: 4
+  dataset:
+    transforms:
+      ops:
+        - {type: Resize, size: [960, 960]}
+        - {type: ConvertPILImage, dtype: 'float32', scale: True}

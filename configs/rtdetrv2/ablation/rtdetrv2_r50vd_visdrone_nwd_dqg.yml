@@ -1,0 +1,69 @@
+__include__: [
+  '../../dataset/coco_detection.yml',
+  '../../runtime.yml',
+  '../include/dataloader.yml',
+  '../include/optimizer.yml',
+  '../include/rtdetrv2_r50vd.yml',
+]
+
+# Ablation: NWD Loss + Dynamic Query Grouping (no LS Conv)
+# Tests whether NWD loss and DQG are compatible.
+# Key concern: DQG changes query-GT assignment; NWD changes regression target
+# weighting. These may conflict when dense queries compete for small targets.
+
+output_dir: ./output/ablation/nwd_dqg
+
+num_classes: 12
+remap_mscoco_category: False
+
+lr_scheduler:
+  type: MultiStepLR
+  milestones: [50, 65]
+  gamma: 0.1
+
+eval_spatial_size: [960, 960]
+
+RTDETRTransformerv2:
+  num_queries: 900
+  query_select_method: agnostic
+
+RTDETRPostProcessor:
+  num_top_queries: 900
+
+# NWD weight set to 1.5 for this pairwise ablation (intermediate between the
+# single-improvement value of 2 and the recommended combined value of 1).
+# This allows the ablation to measure the gradient interaction between NWD and
+# DQG across a range, rather than applying the combined-model fix immediately.
+# The recommended production value when all three improvements are combined is
+# loss_nwd: 1 (see rtdetrv2_r50vd_visdrone_combined.yml).
+RTDETRCriterionv2:
+  weight_dict: {loss_vfl: 1, loss_bbox: 5, loss_giou: 2, loss_nwd: 1.5}
+  losses: ['vfl', 'boxes', 'nwd']
+
+train_dataloader:
+  total_batch_size: 4
+  dataset:
+    transforms:
+      ops:
+        - {type: RandomPhotometricDistort, p: 0.5}
+        - {type: RandomZoomOut, fill: 0}
+        - {type: RandomIoUCrop, p: 0.8}
+        - {type: SanitizeBoundingBoxes, min_size: 1}
+        - {type: RandomHorizontalFlip}
+        - {type: Resize, size: [960, 960]}
+        - {type: SanitizeBoundingBoxes, min_size: 1}
+        - {type: ConvertPILImage, dtype: 'float32', scale: True}
+        - {type: ConvertBoxes, fmt: 'cxcywh', normalize: True}
+
+  collate_fn:
+    type: BatchImageCollateFuncion
+    scales: [640, 672, 704, 736, 768, 800, 832, 864, 896, 928, 960, 992, 1024]
+    stop_epoch: 71
+
+val_dataloader:
+  total_batch_size: 4
+  dataset:
+    transforms:
+      ops:
+        - {type: Resize, size: [960, 960]}
+        - {type: ConvertPILImage, dtype: 'float32', scale: True}

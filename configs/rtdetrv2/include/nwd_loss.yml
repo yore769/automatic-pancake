@@ -1,0 +1,17 @@
+# NWD (Normalized Wasserstein Distance) Loss Configuration
+# Adds NWD loss as an auxiliary bounding box regression loss.
+# NWD is particularly effective for small object detection (e.g., VisDrone).
+#
+# Usage: include this file in your training config alongside the base config.
+#
+# IMPORTANT - Loss weight balance:
+#   Original:     {loss_vfl: 1, loss_bbox: 5, loss_giou: 2}   total_box = 7
+#   With NWD:     {loss_vfl: 1, loss_bbox: 5, loss_giou: 2, loss_nwd: 2}  total_box = 9
+#
+# To maintain the original vfl-vs-box ratio (1:7), use nwd_weight <= 2.
+# When combined with other improvements, lower nwd_weight to 1 to avoid
+# over-weighting the regression objective.
+
+RTDETRCriterionv2:
+  weight_dict: {loss_vfl: 1, loss_bbox: 5, loss_giou: 2, loss_nwd: 2}
+  losses: ['vfl', 'boxes', 'nwd']

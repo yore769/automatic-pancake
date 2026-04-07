@@ -1,0 +1,58 @@
+__include__: [
+  '../../dataset/coco_detection.yml',
+  '../../runtime.yml',
+  '../include/dataloader.yml',
+  '../include/optimizer.yml',
+  '../include/rtdetrv2_r50vd.yml',
+]
+
+# Ablation: Dynamic Query Grouping (DQG) only on VisDrone
+# Uses content-aware query selection (agnostic mode) with 900 queries.
+# Expected improvement: AP +1~2 for dense scenes.
+
+output_dir: ./output/ablation/dqg_only
+
+num_classes: 12
+remap_mscoco_category: False
+
+lr_scheduler:
+  type: MultiStepLR
+  milestones: [50, 65]
+  gamma: 0.1
+
+eval_spatial_size: [960, 960]
+
+RTDETRTransformerv2:
+  num_queries: 900
+  query_select_method: agnostic   # Dynamic query grouping
+
+RTDETRPostProcessor:
+  num_top_queries: 900
+
+train_dataloader:
+  total_batch_size: 4
+  dataset:
+    transforms:
+      ops:
+        - {type: RandomPhotometricDistort, p: 0.5}
+        - {type: RandomZoomOut, fill: 0}
+        - {type: RandomIoUCrop, p: 0.8}
+        - {type: SanitizeBoundingBoxes, min_size: 1}
+        - {type: RandomHorizontalFlip}
+        - {type: Resize, size: [960, 960]}
+        - {type: SanitizeBoundingBoxes, min_size: 1}
+        - {type: ConvertPILImage, dtype: 'float32', scale: True}
+        - {type: ConvertBoxes, fmt: 'cxcywh', normalize: True}
+
+  collate_fn:
+    type: BatchImageCollateFuncion
+    scales: [640, 672, 704, 736, 768, 800, 832, 864, 896, 928, 960, 992, 1024]
+    stop_epoch: 71
+
+val_dataloader:
+  total_batch_size: 4
+  dataset:
+    transforms:
+      ops:
+        - {type: Resize, size: [960, 960]}
+        - {type: ConvertPILImage, dtype: 'float32', scale: True}
