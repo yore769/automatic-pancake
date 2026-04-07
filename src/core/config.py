@@ -113,12 +113,16 @@ class YAMLConfig:
 
     def _resolve_model_cfg(self, model_cfg: dict) -> dict:
         """Build backbone, encoder, decoder from their config sections."""
+        num_classes = self.yaml_cfg.get('num_classes', 80)
         resolved = {}
         for k, v in model_cfg.items():
             if isinstance(v, str) and v in self.yaml_cfg:
                 # v is a class name like 'HGNetv2'
                 sub_cfg = copy.deepcopy(self._get_section(v))
                 sub_cfg = self._resolve_nested(sub_cfg)
+                # Pass num_classes to decoder so heads are built with correct size
+                if k == 'decoder':
+                    sub_cfg.setdefault('num_classes', num_classes)
                 cls = get_class(v)
                 resolved[k] = cls(**sub_cfg)
             elif isinstance(v, dict) and 'type' in v:

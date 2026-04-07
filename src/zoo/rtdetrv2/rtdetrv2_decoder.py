@@ -289,6 +289,8 @@ class RTDETRTransformerv2(nn.Module):
         dropout: float = 0.0,
         # Dynamic Query Grouping
         num_query_groups: int = 4,
+        # Number of object classes - must match criterion/config
+        num_classes: int = 80,
     ):
         super().__init__()
         if feat_channels is None:
@@ -311,9 +313,8 @@ class RTDETRTransformerv2(nn.Module):
         # Level embed
         self.level_embed = nn.Parameter(torch.zeros(num_levels, hidden_dim))
 
-        # Class embed for denoising label input
-        # Will be set after num_classes is known (see _build_heads)
-        self.num_classes = 80  # updated in _build_heads
+        # Number of classes (set now, not lazily)
+        self.num_classes = num_classes
 
         # Decoder layers
         _points = num_points if isinstance(num_points[0], int) else [p[0] for p in num_points]
@@ -349,21 +350,14 @@ class RTDETRTransformerv2(nn.Module):
             hidden_dim=hidden_dim,
         )
 
-        # Encoder query selection heads
-        self.enc_score_head = None  # built in _build_heads
-        self.enc_bbox_head = None
-
-        # Per-layer prediction heads
-        self.dec_score_head = None
-        self.dec_bbox_head = None
+        # Build prediction heads with the known num_classes
+        self._build_heads(num_classes)
 
         # Initialise positional and query params
         self._init_params()
 
     def _build_heads(self, num_classes: int):
-        """Build prediction heads (called once num_classes is known)."""
-        if self.enc_score_head is not None:
-            return
+        """Build prediction heads."""
         self.num_classes = num_classes
         self.enc_score_head = nn.Linear(self.hidden_dim, num_classes)
         self.enc_bbox_head = MLP(self.hidden_dim, self.hidden_dim, 4, num_layers=3)
@@ -469,14 +463,6 @@ class RTDETRTransformerv2(nn.Module):
             dict with 'pred_logits', 'pred_boxes', optionally
             'aux_outputs', 'dn_outputs', 'dn_meta'
         """
-        # Build heads lazily on first forward
-        if self.enc_score_head is None:
-            num_classes = self._infer_num_classes(targets)
-            self._build_heads(num_classes)
-            # Move new params to same device
-            device = encoder_feats[0].device
-            self.to(device)
-
         B = encoder_feats[0].shape[0]
         device = encoder_feats[0].device
 
