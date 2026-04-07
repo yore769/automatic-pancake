@@ -1,0 +1,160 @@
+__include__: [
+  '../dataset/coco_detection.yml',
+  '../runtime.yml',
+  './include/dataloader.yml',
+  './include/optimizer.yml',
+  './include/rtdetrv2_r50vd.yml',
+]
+
+output_dir: ./output/rtdetrv2_r50vd_visdrone_combined
+
+# VisDrone has 12 classes
+num_classes: 12
+remap_mscoco_category: False
+
+
+# -----------------------------------------------------------------
+# LR schedule: extended warmup + milestones adjusted for 3 mods
+# -----------------------------------------------------------------
+lr_scheduler:
+  type: MultiStepLR
+  milestones: [50, 65]
+  gamma: 0.1
+
+lr_warmup_scheduler:
+  type: LinearWarmup
+  # Extended from 2000 → 3000 to let LS-conv BN stats stabilise and
+  # NWD loss weight ramp smoothly before high-LR training begins.
+  warmup_duration: 3000
+
+# -----------------------------------------------------------------
+# Optimizer: lower backbone LR + stronger weight decay
+# (compensates for increased model capacity from LS conv)
+# -----------------------------------------------------------------
+optimizer:
+  type: AdamW
+  params:
+    -
+      params: '^(?=.*backbone)(?!.*norm).*$'
+      # Halved from 1e-5 to 5e-6: backbone features change faster when
+      # LS conv modifies encoder representations and NWD re-weights gradients.
+      lr: 0.000005
+    -
+      params: '^(?=.*(?:encoder|decoder))(?=.*(?:norm|bn)).*$'
+        # BN layers in encoder/decoder share the same lower weight decay
+      weight_decay: 0.
+  lr: 0.0001
+  betas: [0.9, 0.999]
+  # Increased from 1e-4 → 2e-4 to regularise the larger model (LS conv adds params).
+  weight_decay: 0.0002
+
+
+eval_spatial_size: [960, 960]
+
+
+# -----------------------------------------------------------------
+# Decoder: dynamic query grouping enabled
+# -----------------------------------------------------------------
+RTDETRTransformerv2:
+  num_queries: 900
+  # Dynamic Query Grouping
+  use_dynamic_grouping: True
+  # 4 groups instead of 8: keeps FLOPs manageable when LS conv already
+  # increases encoder FLOPs.
+  num_query_groups: 4
+
+
+RTDETRPostProcessor:
+  num_top_queries: 900
+
+
+# -----------------------------------------------------------------
+# Criterion: NWD loss + GIoU + VFL
+# -----------------------------------------------------------------
+RTDETRCriterionv2:
+  weight_dict: {loss_vfl: 1, loss_bbox: 5, loss_giou: 2}
+  losses: ['vfl', 'boxes']
+  alpha: 0.75
+  gamma: 2.0
+
+  # NWD loss options
+  use_nwd: True
+  # Weight tuned so NWD contributes ~20% of the combined box regression loss:
+  #   box_loss = 5 * L1 + 2 * GIoU + nwd_loss_weight * NWD
+  # With C=2.0 and near-matched small boxes (the relevant regime for VisDrone):
+  # run `python tools/analyze_improvements.py` for per-run calibration.
+  nwd_loss_weight: 4.59
+  # IMPORTANT: use C=2.0 for normalised [0,1] coordinates.
+  # The original paper's C=12.8 was calibrated for pixel coordinates on 800×800
+  # images; at normalised scale it makes NWD nearly constant (~0.99) for all
+  # predictions, providing negligible gradient signal.
+  nwd_C: 2.0
+  # Ramp NWD weight linearly from 0 (first aux layer) to nwd_loss_weight
+  # (final layer). Prevents early-layer gradient saturation caused by NWD
+  # receiving imprecise box predictions in shallow decoder layers.
+  nwd_aux_weight_ramp: True
+
+  matcher:
+    type: HungarianMatcher
+    weight_dict: {cost_class: 2, cost_bbox: 5, cost_giou: 2}
+    alpha: 0.25
+    gamma: 2.0
+    use_nwd: True
+    nwd_weight: 2.0
+    nwd_C: 2.0  # same C as loss; ensures matcher and loss are consistent
+
+
+# -----------------------------------------------------------------
+# Encoder: LS Convolution enabled
+# -----------------------------------------------------------------
+HybridEncoder:
+  in_channels: [512, 1024, 2048]
+  feat_strides: [8, 16, 32]
+  hidden_dim: 256
+  use_encoder_idx: [2]
+  num_encoder_layers: 1
+  nhead: 8
+  dim_feedforward: 1024
+  dropout: 0.
+  enc_act: 'gelu'
+  expansion: 1.0
+  depth_mult: 1
+  act: 'silu'
+  # LS Convolution
+  use_ls_conv: True
+  ls_kernel_size: 3
+  # Lower BN momentum than default 0.1: combined training causes faster feature
+  # distribution shifts; 0.03 (YOLOv8-style EMA momentum) gives better tracking.
+  ls_bn_momentum: 0.03
+
+
+# -----------------------------------------------------------------
+# Dataloader: same as single-improvement experiments for fair comparison
+# -----------------------------------------------------------------
+train_dataloader:
+  total_batch_size: 4
+  dataset:
+    transforms:
+      ops:
+        - {type: RandomPhotometricDistort, p: 0.5}
+        - {type: RandomZoomOut, fill: 0}
+        - {type: RandomIoUCrop, p: 0.8}
+        - {type: SanitizeBoundingBoxes, min_size: 1}
+        - {type: RandomHorizontalFlip}
+        - {type: Resize, size: [960, 960]}
+        - {type: SanitizeBoundingBoxes, min_size: 1}
+        - {type: ConvertPILImage, dtype: 'float32', scale: True}
+        - {type: ConvertBoxes, fmt: 'cxcywh', normalize: True}
+
+  collate_fn:
+    type: BatchImageCollateFuncion
+    scales: [640, 672, 704, 736, 768, 800, 832, 864, 896, 928, 960, 992, 1024]
+    stop_epoch: 71
+
+val_dataloader:
+  total_batch_size: 4
+  dataset:
+    transforms:
+      ops:
+        - {type: Resize, size: [960, 960]}
+        - {type: ConvertPILImage, dtype: 'float32', scale: True}
