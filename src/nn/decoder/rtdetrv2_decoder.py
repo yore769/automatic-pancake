@@ -407,7 +407,9 @@ class RTDETRTransformerv2(nn.Module):
         # ---- Dynamic Query Grouping ----
         self.use_dynamic_grouping = use_dynamic_grouping
         self.grouping_warmup_iters = grouping_warmup_iters
-        self._iter = 0  # training iteration counter
+        # _iter tracks training steps for warm-up.  It is reset by reset_iter()
+        # when training is restarted in the same process (e.g. fine-tuning).
+        self._iter = 0
         if use_dynamic_grouping:
             self.dqg = DynamicQueryGrouping(hidden_dim, num_groups)
         else:
@@ -454,9 +456,16 @@ class RTDETRTransformerv2(nn.Module):
         bias_value = -math.log((1 - prior_prob) / prior_prob)
         for head in self.class_head:
             nn.init.constant_(head.bias, bias_value)
-        for head in self.enc_score_head.parameters():
-            pass
         nn.init.constant_(self.enc_score_head.bias, bias_value)
+
+    def reset_iter(self):
+        """Reset the training iteration counter.
+
+        Call this before restarting training (e.g. fine-tuning) so that the
+        Dynamic Query Grouping warm-up period is re-applied from the start of
+        the new training run.
+        """
+        self._iter = 0
 
     def _get_encoder_feats(self, feats, feat_strides):
         """Flatten multi-scale encoder features."""
@@ -579,11 +588,14 @@ class RTDETRTransformerv2(nn.Module):
             cls_logits = self.class_head[i](tgt)
             delta_box = self.bbox_head[i](tgt)
 
-            # Update reference points iteratively
+            # Update reference points iteratively.
+            # cur_ref always carries 4 coordinates (cx, cy, w, h) after the
+            # first layer; assert this to catch shape bugs early.
+            assert cur_ref.shape[-1] == 4, (
+                f'Expected ref points of size 4, got {cur_ref.shape[-1]}')
             cur_ref_xy = (_inverse_sigmoid(cur_ref[..., :2]) +
                           delta_box[..., :2]).sigmoid()
-            cur_ref_wh = cur_ref[..., 2:].sigmoid() if cur_ref.shape[-1] == 4 \
-                else delta_box[..., 2:].sigmoid()
+            cur_ref_wh = (delta_box[..., 2:]).sigmoid()
             cur_box = torch.cat([cur_ref_xy, cur_ref_wh], dim=-1)
 
             all_cls.append(cls_logits)

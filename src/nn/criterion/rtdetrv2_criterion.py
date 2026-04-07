@@ -97,8 +97,9 @@ class RTDETRCriterionv2(nn.Module):
             weight_dict = {'loss_vfl': 1, 'loss_bbox': 5, 'loss_giou': 2}
         self.weight_dict = weight_dict
 
-        # Ensure NWD weight is sensibly proportional to GIoU weight
-        # Fix: if user set loss_nwd == loss_giou, halve it automatically
+        # Ensure NWD weight is set. Default: 0.5 × GIoU weight.
+        # Note: if the user explicitly sets loss_nwd in weight_dict, that value
+        # is used as-is. This only provides a safe default when it is absent.
         if 'loss_nwd' not in self.weight_dict:
             giou_w = self.weight_dict.get('loss_giou', 2)
             self.weight_dict['loss_nwd'] = giou_w * 0.5

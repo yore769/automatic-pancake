@@ -2,6 +2,7 @@
 
 import os
 import sys
+import re
 import json
 import time
 import datetime
@@ -16,6 +17,9 @@ from src.misc.dist_utils import (
 from src.misc.logger import MetricLogger
 
 __all__ = ['DetSolver']
+
+# Pattern to identify auxiliary/encoder/denoising loss keys (excluded from step log)
+_AUX_PAT = re.compile(r'.*(_aux_\d+|_enc|_dn_\d+)$')
 
 
 class DetSolver:
@@ -131,8 +135,7 @@ class DetSolver:
             metric_logger.update(
                 train_loss=sum(loss_dict_reduced.values()).item(),
                 **{k: v.item() for k, v in loss_dict_reduced.items()
-                   if not k.endswith(('_aux_0', '_aux_1', '_aux_2',
-                                      '_aux_3', '_aux_4', '_enc'))})
+                   if not _AUX_PAT.match(k)})
 
             self.global_step += 1
 

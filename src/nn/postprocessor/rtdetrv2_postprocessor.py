@@ -47,10 +47,10 @@ class RTDETRPostProcessor(nn.Module):
             1, topk_idx.unsqueeze(-1).expand(-1, -1, 4))
 
         # Denormalise boxes
+        # ---- Unused scale variable removed; denormalization done per-coordinate ----
         results = []
         for i in range(len(orig_target_sizes)):
             h, w = orig_target_sizes[i].unbind(-1)
-            scale = torch.stack([w, h, w, h]).float()
             cx, cy, bw, bh = topk_boxes_norm[i].unbind(-1)
             boxes = torch.stack([
                 (cx - bw / 2) * w,

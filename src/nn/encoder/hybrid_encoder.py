@@ -129,7 +129,12 @@ class CCFM(nn.Module):
                                act=act, use_ls_conv=use_ls_conv)
         self.rep_p3 = RepBlock(hidden_dim * 2, hidden_dim, num_blocks,
                                act=act, use_ls_conv=use_ls_conv)
-        # Bottom-up path
+        # Bottom-up path.
+        # Downsampling convolutions intentionally use standard ConvNormAct rather
+        # than LSConv: their purpose is spatial downsampling (stride=2), which
+        # would not benefit from the depthwise-pointwise decomposition and would
+        # lose the identity skip connection.  This is consistent with the
+        # principle that LS Conv is for channel-preserving fusion, not resampling.
         self.downsample_p3 = ConvNormAct(hidden_dim, hidden_dim, 3, stride=2, act=act)
         self.rep_n4 = RepBlock(hidden_dim * 2, hidden_dim, num_blocks,
                                act=act, use_ls_conv=use_ls_conv)

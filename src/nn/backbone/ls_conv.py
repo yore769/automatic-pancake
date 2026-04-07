@@ -71,10 +71,15 @@ class LSConv(nn.Module):
                               groups=in_ch, act=act)
         # Pointwise channel projection
         self.pw = ConvNormAct(in_ch, out_ch, 1, 1, act=act)
-        # Identity skip when shapes match
+
+        # Skip connection strategy:
+        #   - Identity skip when in_ch == out_ch AND stride == 1
+        #   - Projection skip when channel count changes (regardless of stride)
+        #   - Stride-only skip (strided projection) when stride > 1 AND in_ch == out_ch
+        # All three cases ensure gradient can flow back through the skip path.
         self.use_skip = (in_ch == out_ch and stride == 1)
-        if not self.use_skip and in_ch != out_ch:
-            # Projection skip for shape mismatch
+        if not self.use_skip:
+            # Projection skip covers both channel mismatch and stride > 1 cases
             self.skip_proj = ConvNormAct(in_ch, out_ch, 1, stride, act='none')
             self.use_proj_skip = True
         else:

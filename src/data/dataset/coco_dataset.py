@@ -10,6 +10,14 @@ from torch.utils.data import Dataset
 from pathlib import Path
 from PIL import Image
 
+try:
+    from faster_coco_eval import COCO as CocoAPI
+except ImportError:
+    try:
+        from pycocotools.coco import COCO as CocoAPI
+    except ImportError:
+        CocoAPI = None  # type: ignore[assignment]
+
 __all__ = ['CocoDetection']
 
 
@@ -38,7 +46,10 @@ class CocoDetection(Dataset):
 
     def __init__(self, img_folder, ann_file, transforms=None,
                  remap_mscoco_category=False):
-        from faster_coco_eval import COCO as CocoAPI
+        if CocoAPI is None:
+            raise ImportError(
+                'Either faster-coco-eval or pycocotools must be installed. '
+                'Run: pip install faster-coco-eval')
         self.img_folder = Path(img_folder)
         self.coco = CocoAPI(ann_file)
         self.ids = list(sorted(self.coco.imgs.keys()))
